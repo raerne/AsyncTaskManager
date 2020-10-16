@@ -11,6 +11,7 @@
 #include <queue>
 #include <chrono>
 #include <iostream>
+#include <functional>
 
 //template<class Function>
 //class Task {
@@ -21,8 +22,8 @@
 //    std::packaged_task<Function> pt_;
 //};
 
-template<class Function>
 class TaskQueue {
+    typedef std::packaged_task<void()> Task;
 public:
     // TODO: thread safety and all
     size_t Size() {
@@ -31,11 +32,20 @@ public:
     size_t Empty() {
         return queue.empty();
     }
-    void AddTask(std::packaged_task<Function>&& task) {
+    void AddTask(Task&& task) {
         queue.push(std::move(task));
     }
 
-    std::packaged_task<Function> GetTask() {
+    template<typename F, typename... Args>
+    std::future<void> AddTask(F&& f, Args&&... args) {
+        auto b = std::bind(std::forward<F>(f), std::forward<Args>(args)...);
+        Task pt(b);
+        auto fut = pt.get_future();
+        queue.push(std::packaged_task<void()>(b));
+        return fut;
+    }
+
+    Task GetTask() {
         if(queue.empty()) return {};
         auto t = std::move(queue.front());
         queue.pop();
@@ -43,7 +53,7 @@ public:
     }
 
 private:
-    std::queue<std::packaged_task<Function>> queue;
+    std::queue<Task> queue;
 };
 
 class TaskManager {
@@ -55,7 +65,7 @@ public:
             while(active) {
                 if(!queue.Empty()) {
                     auto t = std::move(queue.GetTask());
-                    t(5);
+                    t();
                 } else {
                     using namespace std::chrono_literals;
                     std::cout << "sleep for 1s...\n";
@@ -72,13 +82,13 @@ public:
             thread.join();
     }
 
-    TaskQueue<void(int)>& GetQueue() {
+    TaskQueue& GetQueue() {
         return queue;
     }
 
 private:
 
-    TaskQueue<void(int)> queue;
+    TaskQueue queue;
     std::thread thread;
     bool active;
 };
