@@ -34,6 +34,10 @@ public:
 
     }
 
+    void throw_ex() {
+        throw std::runtime_error("test error");
+    }
+
     void print() {
         std::lock_guard<std::mutex> lk(m);
         for(auto& n : nums) {
@@ -49,11 +53,12 @@ private:
 
 int main() {
 
-    TaskManager tm;
-    auto& q = tm.GetQueue();
-    tm.Launch();
+//    std::packaged_task<void()> tt{};
+//    tt();
 
-//    std::packaged_task<void()> task([]() { std::cout << "process" << std::endl;});
+    TaskManager tm;
+    auto q = tm.GetQueue();
+
 //    q.AddTask(std::move(task));
 //
 //    // tear down
@@ -68,23 +73,29 @@ int main() {
 
     Process p(20);
 
-//    auto bp2 = std::bind(&Process::set, &p, 5);
-//    std::packaged_task<void()> tproc3(bp2);
-//    q.AddTask(std::move(tproc3));
+    auto exfut = q->AddTask(&Process::throw_ex, &p);
+//    try {
+//        exfut.get();
+//    } catch(std::exception& e) {
+//        std::cout << "caught exception: " << e.what() << std::endl;
+//    }
 
-    q.AddTask(&Process::set, &p, 5);
+    auto fut = q->AddTask(&Process::set, &p, 5);
 
 //    std::packaged_task<void()> tp(std::bind(&Process::double_nums_and_wait, &p));
 //    std::future<void> f;
 //    f = tp.get_future();
 //    q.AddTask(std::move(tp));
-    auto fut = q.AddTask(&Process::double_nums_and_wait, &p);
 
-    p.double_nums();
+
 
     std::cout << "block until ret..." << std::endl;
     fut.wait();
     std::cout << "done\n";
+
+    p.double_nums();
+    q->AddTask(&Process::double_nums_and_wait, &p);
+
 //    p.set(1);
 //    std::_Bind_helper<0, void (Process::*)(), Process *>::type bp;
 //    bp = std::bind(&Process::double_nums, &p);
@@ -97,8 +108,6 @@ int main() {
     std::this_thread::sleep_for(1s);
 
     p.print();
-
-    tm.Shutdown();
 
     return 0;
 }
