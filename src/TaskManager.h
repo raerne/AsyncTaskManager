@@ -74,6 +74,7 @@ public:
     std::future<void> PushTask(F&& f, Args&&... args) {
         auto b = std::bind(std::forward<F>(f), std::forward<Args>(args)...);
         Task pt(b);
+        if(!pt.valid()) throw std::runtime_error("task not callable");
         auto fut = pt.get_future();
         Push(std::move(pt));
         return fut;
@@ -84,7 +85,7 @@ public:
         cv.wait(lk, [this] { return done || !queue.empty(); });
 
         if(done)
-            return Task(std::function<void()>());
+            return Task([]{});
 
         auto t = std::move(queue.front());
         queue.pop();
@@ -96,7 +97,7 @@ public:
     Task TryAndPop() {
         std::lock_guard<std::mutex> lk(mut);
         if(queue.empty())
-            return {};
+            return Task([]{});
 
         auto t = std::move(queue.front());
         queue.pop();
@@ -124,7 +125,9 @@ public:
         thread = std::thread([this]() {
             while(!queue->IsDone()) {
                 auto t = std::move(queue->WaitAndPop());
-                t();
+                if(t.valid()) {
+                    t();
+                }
             }
         });
     }
@@ -136,9 +139,7 @@ public:
     TaskManager& operator=(TaskManager&& other) = default;
 
     ~TaskManager() {
-        std::cout << "shutdown\n";
         queue->Shutdown();
-        std::cout << "join\n";
         if (thread.joinable())
             thread.join();
     }
