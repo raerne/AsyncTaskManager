@@ -12,7 +12,9 @@
 #include <chrono>
 #include <iostream>
 #include <functional>
+#include<type_traits>
 
+#include <pthread.h>
 
 class TaskQueue {
     typedef std::packaged_task<void()> Task;
@@ -22,23 +24,37 @@ class TaskQueue {
 public:
 
     TaskQueue() = default;
-    ~TaskQueue() = default;
+//    ~TaskQueue() = default;
+    ~TaskQueue() {
+        std::cout << "taskqueue deleted\n";
+        done = true; // not threadsafe
+    }
     TaskQueue(const TaskQueue&) = delete;
     TaskQueue& operator=(const TaskQueue&) = delete;
 
     TaskQueue(TaskQueue&& other) {
-        std::lock_guard<std::mutex> lk(other.mut);
-        queue = std::move(other.queue);
-        done = other.done;
-        other.done = true;
+        std::cout << "move construct TaskQueue\n";
+        {
+            std::lock_guard<std::mutex> lk(other.mut);
+            queue = std::move(other.queue);
+            done = other.done;
+            other.done = true;
+        }
         other.cv.notify_all();
     }
 
     TaskQueue& operator=(TaskQueue&& other) {
-        std::lock_guard<std::mutex> lk(other.mut);
-        queue = std::move(other.queue);
-        done = other.done;
-        other.done = true;
+        std::cout << "move assign TaskQueue\n";
+        if(&other == this)
+            return *this;
+
+        {
+            std::scoped_lock lk{other.mut, mut};
+            queue = std::move(other.queue);
+            done = other.done;
+            other.done = true;
+        }
+
         other.cv.notify_all();
         return *this;
     }
@@ -111,6 +127,15 @@ public:
     bool IsDone() {
         std::lock_guard<std::mutex> lk(mut);
         return done;
+//        std::cout << "IsDone on this: " << std::hex << this << std::endl;
+//        pthread_mutex_t* m = mut.native_handle();
+//        int err = pthread_mutex_lock(m);
+////
+//        std::cout << "pthread_mutex_lock(" << err << ")\n";
+//        bool d = done;
+//        err = pthread_mutex_unlock(m);
+//        std::cout << "pthread_mutex_unlock(" << err << ")\n";
+//        return d;
     }
 
 private:
@@ -122,37 +147,73 @@ private:
 
 class TaskManager {
 public:
-    // simple version for now with single queue and single thread already existing
-    TaskManager() : queue(std::make_shared<TaskQueue>())
-    {
+
+    void LaunchThread() {
+        // join existing thread first
+        if(thread.joinable()) {
+            std::cout << "join thread at launch: " << std::hex << thread.native_handle() << std::endl;
+            thread.join();
+        }
+
         thread = std::thread([this]() {
-            while(!queue->IsDone()) {
-                auto t = std::move(queue->WaitAndPop());
+            while(!queue.IsDone()) {
+                std::cout << "queue: " << std::hex << &queue << "\n";
+                auto t = std::move(queue.WaitAndPop());
                 if(t.valid()) {
                     t();
                 }
             }
+            std::cout << "thread done, queue: " << std::hex << &queue << "\n";
         });
+    }
+
+    // simple version for now with single queue and single thread already existing
+    TaskManager() //: queue(std::make_shared<TaskQueue>())
+    {
+        LaunchThread();
     }
 
     // move: queue and thread handle is moved, copy is not available for threads
     TaskManager(const TaskManager&) = delete;
     TaskManager& operator=(const TaskManager&) = delete;
-    TaskManager(TaskManager&& other) = default;
-    TaskManager& operator=(TaskManager&& other) = default;
-
-    ~TaskManager() {
-        queue->Shutdown();
-        if (thread.joinable())
-            thread.join();
+//    TaskManager(TaskManager&& other) = default;
+    TaskManager(TaskManager&& other) {
+        queue = std::move(other.queue);
+        thread = std::move(other.thread);
+        // old thread will exit due to the moved queue marking the old one as done
+        // then we will relaunch a new thread
+        LaunchThread();
+        std::cout << "move constructed TaskManager " << std::hex << this << "\n";
+    }
+//    TaskManager& operator=(TaskManager&& other) = default;
+    TaskManager& operator=(TaskManager&& other){
+        queue = std::move(other.queue);
+        thread = std::move(other.thread);
+        LaunchThread();
+//        thread = std::move(other.thread);
+        std::cout << "move assigned TaskManager\n";
+        return *this;
     }
 
-    std::shared_ptr<TaskQueue> GetQueue() {
-        return queue;
+    ~TaskManager() {
+        queue.Shutdown();
+        std::cout << "shutdown called TaskManager\n";
+        if (thread.joinable()) {
+            std::cout << "join thread: " << std::hex << thread.native_handle() << " " << this << std::endl;
+            thread.join();
+        } else {
+            std::cout << "nonjoinable thread: " << std::hex << thread.native_handle() << " " << this << std::endl;
+
+        }
+    }
+
+    TaskQueue* GetQueue() {
+        return &queue;
     }
 
 private:
-    std::shared_ptr<TaskQueue> queue;
+//    std::shared_ptr<TaskQueue> queue;
+    TaskQueue queue;
     std::thread thread;
 };
 

@@ -15,7 +15,8 @@ protected:
 public:
     DummyProcess p;
     TaskManager tm;
-    std::shared_ptr<TaskQueue> queue;
+//    std::shared_ptr<TaskQueue> queue;
+    TaskQueue* queue;
 };
 
 TEST_F(TaskManagerTest, PackagedTasksEmpty) {
@@ -103,6 +104,34 @@ TEST_F (TaskManagerTest, ExceptNoExcept) {
     EXPECT_NO_THROW(exfut2.wait()); // get would throw however we don't check the shared state
     EXPECT_NO_THROW(fut.get());
     EXPECT_EQ((std::vector<int>(VECNUM, 20)), p.get());
+}
+
+TEST_F (TaskManagerTest, MoveQueue) {
+
+
+
+    auto fut = queue->PushTask(&DummyProcess::set, &p, 20);
+    TaskManager newtm = std::move(tm);
+    queue = newtm.GetQueue();
+
+    auto fut2 = queue->PushTask(&DummyProcess::double_nums, &p);
+
+    EXPECT_NO_THROW(fut.wait());
+    EXPECT_NO_THROW(fut2.wait());
+    EXPECT_EQ((std::vector<int>(VECNUM, 40)), p.get());
+}
+
+TEST_F (TaskManagerTest, MoveTaskManager) {
+
+    auto fut = queue->PushTask(&DummyProcess::set, &p, 20);
+
+    TaskManager newtm = std::move(tm);
+    queue = newtm.GetQueue();
+
+    auto fut2 = queue->PushTask(&DummyProcess::double_nums, &p);
+    EXPECT_NO_THROW(fut.wait());
+    EXPECT_NO_THROW(fut2.wait());
+    EXPECT_EQ((std::vector<int>(VECNUM, 40)), p.get());
 }
 
 
