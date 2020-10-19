@@ -16,6 +16,9 @@
 
 class TaskQueue {
     typedef std::packaged_task<void()> Task;
+    // pop operation is not thread-safe if copy/move construction can throw
+    static_assert(std::is_nothrow_move_constructible_v<Task>);
+
 public:
 
     TaskQueue() = default;
