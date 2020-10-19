@@ -1,7 +1,7 @@
 #include "gtest/gtest.h"
 
 #include <iostream>
-#include "../src/TaskManager.h"
+#include <TaskManager.h>
 #include "DummyProcess.h"
 
 constexpr int VECNUM = 20;
@@ -92,6 +92,19 @@ TEST_F (TaskManagerTest, QueueSyncOrder) {
     fut.wait(); // block until async done
     EXPECT_EQ((std::vector<int>(VECNUM, 50)), p.get());
 }
+
+TEST_F (TaskManagerTest, ExceptNoExcept) {
+
+    auto exfut = queue->PushTask(&DummyProcess::throw_ex, &p); // async
+    auto exfut2 = queue->PushTask(&DummyProcess::throw_ex, &p); // async
+    auto fut = queue->PushTask(&DummyProcess::set, &p, 20); // async
+
+    EXPECT_THROW(exfut.get(), std::runtime_error);
+    EXPECT_NO_THROW(exfut2.wait()); // get would throw however we don't check the shared state
+    EXPECT_NO_THROW(fut.get());
+    EXPECT_EQ((std::vector<int>(VECNUM, 20)), p.get());
+}
+
 
 
 int main(int argc, char **argv) {

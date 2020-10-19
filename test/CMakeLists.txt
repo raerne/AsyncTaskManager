@@ -17,4 +17,5 @@ download_project(
 add_subdirectory(${googletest_SOURCE_DIR} ${googletest_BINARY_DIR} EXCLUDE_FROM_ALL)
 
 add_executable(runUnitTests gtest.cpp DummyProcess.cpp DummyProcess.h)
+target_include_directories(runUnitTests PRIVATE ../lib/)
 target_link_libraries(runUnitTests gtest gmock taskmanager)

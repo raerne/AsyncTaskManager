@@ -58,11 +58,11 @@ public:
         cv.notify_all();
     }
 
-    // AddTask can be used the same way std::bind is used
+    // Push can be used the same way std::bind is used
     // Just make sure f(args) evaluates to a function fo the form `void()`, i.e. the created packaged task can
     // be evaluated using operator()
     //
-    // Alternatively AddTask can be used by directly moving a std::packaged_task<void()> as argument
+    // Alternatively Push can be used by directly by using a std::packaged_task<void()> as argument
     void Push(Task&& task) {
         std::lock_guard<std::mutex> lk(mut);
         queue.push(std::move(task));
