@@ -73,14 +73,14 @@ int main() {
 
     Process p(20);
 
-    auto exfut = q->AddTask(&Process::throw_ex, &p);
-//    try {
+    auto exfut = q->PushTask(&Process::throw_ex, &p);
+    try {
 //        exfut.get();
-//    } catch(std::exception& e) {
-//        std::cout << "caught exception: " << e.what() << std::endl;
-//    }
+    } catch(std::exception& e) {
+        std::cout << "caught exception: " << e.what() << std::endl;
+    }
 
-    auto fut = q->AddTask(&Process::set, &p, 5);
+    auto fut = q->PushTask(&Process::set, &p, 5);
 
 //    std::packaged_task<void()> tp(std::bind(&Process::double_nums_and_wait, &p));
 //    std::future<void> f;
@@ -94,7 +94,7 @@ int main() {
     std::cout << "done\n";
 
     p.double_nums();
-    q->AddTask(&Process::double_nums_and_wait, &p);
+    q->PushTask(&Process::double_nums_and_wait, &p);
 
 //    p.set(1);
 //    std::_Bind_helper<0, void (Process::*)(), Process *>::type bp;

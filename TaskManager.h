@@ -13,6 +13,7 @@
 #include <iostream>
 #include <functional>
 
+
 class TaskQueue {
     typedef std::packaged_task<void()> Task;
 public:
@@ -43,12 +44,11 @@ public:
         std::lock_guard<std::mutex> lk(mut);
         return queue.size();
     }
+
     size_t Empty() {
         std::lock_guard<std::mutex> lk(mut);
         return queue.empty();
     }
-
-
 
     void Shutdown() {
         {
@@ -63,40 +63,50 @@ public:
     // be evaluated using operator()
     //
     // Alternatively AddTask can be used by directly moving a std::packaged_task<void()> as argument
-    void AddTask(Task&& task) {
+    void Push(Task&& task) {
         std::lock_guard<std::mutex> lk(mut);
         queue.push(std::move(task));
         cv.notify_one();
+
     }
 
     template<typename F, typename... Args>
-    std::future<void> AddTask(F&& f, Args&&... args) {
+    std::future<void> PushTask(F&& f, Args&&... args) {
         auto b = std::bind(std::forward<F>(f), std::forward<Args>(args)...);
         Task pt(b);
         auto fut = pt.get_future();
-        AddTask(std::move(pt));
+        Push(std::move(pt));
         return fut;
     }
 
-    Task WaitAndGetTask() {
+    Task WaitAndPop() {
         std::unique_lock<std::mutex> lk(mut);
-        std::cout << "waiting for task\n";
         cv.wait(lk, [this] { return done || !queue.empty(); });
-        std::cout << "done waiting for task\n";
-        if(done) return Task([](){std::cout << "done task\n"; });
+
+        if(done)
+            return Task(std::function<void()>());
 
         auto t = std::move(queue.front());
         queue.pop();
         lk.unlock();
+
         return std::move(t);
     }
 
-    Task TryAndGetTask() {
+    Task TryAndPop() {
         std::lock_guard<std::mutex> lk(mut);
-        if(queue.empty()) return {};
+        if(queue.empty())
+            return {};
+
         auto t = std::move(queue.front());
         queue.pop();
+
         return std::move(t);
+    }
+
+    bool IsDone() {
+        std::lock_guard<std::mutex> lk(mut);
+        return done;
     }
 
 private:
@@ -111,27 +121,26 @@ public:
     // simple version for now with single queue and single thread already existing
     TaskManager() : queue(std::make_shared<TaskQueue>())
     {
-        if(!thread_done) return;
-        thread_done = false;
-
         thread = std::thread([this]() {
-            while(!thread_done) {
-                auto t = std::move(queue->WaitAndGetTask());
+            while(!queue->IsDone()) {
+                auto t = std::move(queue->WaitAndPop());
                 t();
             }
         });
     }
 
+    // move: queue and thread handle is moved, copy is not available for threads
+    TaskManager(const TaskManager&) = delete;
+    TaskManager& operator=(const TaskManager&) = delete;
+    TaskManager(TaskManager&& other) = default;
+    TaskManager& operator=(TaskManager&& other) = default;
+
     ~TaskManager() {
         std::cout << "shutdown\n";
         queue->Shutdown();
-
-        if(!thread_done) {
-            thread_done = true;
-            if (thread.joinable()) {
-                thread.join();
-            }
-        }
+        std::cout << "join\n";
+        if (thread.joinable())
+            thread.join();
     }
 
     std::shared_ptr<TaskQueue> GetQueue() {
@@ -141,8 +150,6 @@ public:
 private:
     std::shared_ptr<TaskQueue> queue;
     std::thread thread;
-
-    std::atomic<bool> thread_done{true};
 };
 
 
