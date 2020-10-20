@@ -25,9 +25,12 @@ public:
 
     TaskQueue() = default;
 //    ~TaskQueue() = default;
+
+    // Always call Shutdown before destruction, otherwise undefined behaviour
     ~TaskQueue() {
         std::cout << "taskqueue deleted\n";
-        done = true; // not threadsafe
+//        done = true; // not threadsafe
+//        cv.notify_all();
     }
     TaskQueue(const TaskQueue&) = delete;
     TaskQueue& operator=(const TaskQueue&) = delete;
@@ -39,6 +42,7 @@ public:
             queue = std::move(other.queue);
             done = other.done;
             other.done = true;
+            std::cout << "moved queue with " << queue.size() << " elements\n";
         }
         other.cv.notify_all();
     }
@@ -51,6 +55,7 @@ public:
         {
             std::scoped_lock lk{other.mut, mut};
             queue = std::move(other.queue);
+            std::cout << "moved queue with " << queue.size() << " elements\n";
             done = other.done;
             other.done = true;
         }
@@ -67,6 +72,11 @@ public:
     size_t Empty() {
         std::lock_guard<std::mutex> lk(mut);
         return queue.empty();
+    }
+
+    void Restart() {
+        std::lock_guard<std::mutex> lk(mut);
+        done = false;
     }
 
     void Shutdown() {
@@ -89,19 +99,9 @@ public:
 
     }
 
-    template<typename F, typename... Args>
-    std::future<void> PushTask(F&& f, Args&&... args) {
-        auto b = std::bind(std::forward<F>(f), std::forward<Args>(args)...);
-        Task pt(b);
-        if(!pt.valid()) throw std::runtime_error("task not callable");
-        auto fut = pt.get_future();
-        Push(std::move(pt));
-        return fut;
-    }
-
     Task WaitAndPop() {
         std::unique_lock<std::mutex> lk(mut);
-        cv.wait(lk, [this] { return done || !queue.empty(); });
+        cv.wait(lk, [this] { std::cout << "wakeup with (done, empty) = (" << done << ", " << queue.empty() << ")" << std::endl; return done || !queue.empty(); });
 
         if(done)
             return Task([]{});
@@ -115,7 +115,8 @@ public:
 
     Task TryAndPop() {
         std::lock_guard<std::mutex> lk(mut);
-        if(queue.empty())
+
+        if(done || queue.empty())
             return Task([]{});
 
         auto t = std::move(queue.front());
@@ -127,15 +128,6 @@ public:
     bool IsDone() {
         std::lock_guard<std::mutex> lk(mut);
         return done;
-//        std::cout << "IsDone on this: " << std::hex << this << std::endl;
-//        pthread_mutex_t* m = mut.native_handle();
-//        int err = pthread_mutex_lock(m);
-////
-//        std::cout << "pthread_mutex_lock(" << err << ")\n";
-//        bool d = done;
-//        err = pthread_mutex_unlock(m);
-//        std::cout << "pthread_mutex_unlock(" << err << ")\n";
-//        return d;
     }
 
 private:
@@ -149,13 +141,8 @@ class TaskManager {
 public:
 
     void LaunchThread() {
-        // join existing thread first
-        if(thread.joinable()) {
-            std::cout << "join thread at launch: " << std::hex << thread.native_handle() << std::endl;
-            thread.join();
-        }
-
-        thread = std::thread([this]() {
+       thread = std::thread([this]() {
+            std::cout << "launching thread: " << std::hex << this << std::endl;
             while(!queue.IsDone()) {
                 std::cout << "queue: " << std::hex << &queue << "\n";
                 auto t = std::move(queue.WaitAndPop());
@@ -163,7 +150,7 @@ public:
                     t();
                 }
             }
-            std::cout << "thread done, queue: " << std::hex << &queue << "\n";
+            std::cout << "thread done: " << std::hex << this << std::endl;
         });
     }
 
@@ -178,37 +165,58 @@ public:
     TaskManager& operator=(const TaskManager&) = delete;
 //    TaskManager(TaskManager&& other) = default;
     TaskManager(TaskManager&& other) {
+
+        // TODO a bit much custom code here
+        other.Shutdown();
+        this->Shutdown();
+
         queue = std::move(other.queue);
-        thread = std::move(other.thread);
-        // old thread will exit due to the moved queue marking the old one as done
-        // then we will relaunch a new thread
+        queue.Restart();
         LaunchThread();
+
         std::cout << "move constructed TaskManager " << std::hex << this << "\n";
     }
 //    TaskManager& operator=(TaskManager&& other) = default;
     TaskManager& operator=(TaskManager&& other){
+        if(&other == this)
+            return *this;
+
+        // Move shutdown queue (so no thread is waiting) and restart a new (not moved) thread on moved queue
+        this->Shutdown();
+        other.Shutdown();
+
         queue = std::move(other.queue);
-        thread = std::move(other.thread);
+        queue.Restart();
+
         LaunchThread();
-//        thread = std::move(other.thread);
+
         std::cout << "move assigned TaskManager\n";
         return *this;
     }
 
-    ~TaskManager() {
+    void Shutdown() {
         queue.Shutdown();
-        std::cout << "shutdown called TaskManager\n";
         if (thread.joinable()) {
-            std::cout << "join thread: " << std::hex << thread.native_handle() << " " << this << std::endl;
             thread.join();
-        } else {
-            std::cout << "nonjoinable thread: " << std::hex << thread.native_handle() << " " << this << std::endl;
-
         }
+    }
+
+    ~TaskManager() {
+        Shutdown();
     }
 
     TaskQueue* GetQueue() {
         return &queue;
+    }
+
+    template<typename F, typename... Args>
+    std::future<void> PushTask(F&& f, Args&&... args) {
+        auto b = std::bind(std::forward<F>(f), std::forward<Args>(args)...);
+        std::packaged_task<void()> pt(b);
+        if(!pt.valid()) throw std::runtime_error("task not callable");
+        auto fut = pt.get_future();
+        queue.Push(std::move(pt));
+        return fut;
     }
 
 private:

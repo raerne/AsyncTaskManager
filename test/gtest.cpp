@@ -108,8 +108,6 @@ TEST_F (TaskManagerTest, ExceptNoExcept) {
 
 TEST_F (TaskManagerTest, MoveQueue) {
 
-
-
     auto fut = queue->PushTask(&DummyProcess::set, &p, 20);
     TaskManager newtm = std::move(tm);
     queue = newtm.GetQueue();
@@ -123,9 +121,10 @@ TEST_F (TaskManagerTest, MoveQueue) {
 
 TEST_F (TaskManagerTest, MoveTaskManager) {
 
-    auto fut = queue->PushTask(&DummyProcess::set, &p, 20);
-
-    TaskManager newtm = std::move(tm);
+    p.set(10);
+    auto fut = queue->PushTask(&DummyProcess::double_nums, &p);
+    std::this_thread::sleep_for(1ms);
+    TaskManager newtm{std::move(tm)};
     queue = newtm.GetQueue();
 
     auto fut2 = queue->PushTask(&DummyProcess::double_nums, &p);
@@ -134,7 +133,38 @@ TEST_F (TaskManagerTest, MoveTaskManager) {
     EXPECT_EQ((std::vector<int>(VECNUM, 40)), p.get());
 }
 
+TEST_F (TaskManagerTest, AssignTaskManager) {
 
+    p.set(10);
+    auto fut = queue->PushTask(&DummyProcess::double_nums, &p);
+
+    TaskManager tmp = std::move(tm);
+    queue = tmp.GetQueue();
+    auto fut2 = queue->PushTask(&DummyProcess::double_nums, &p);
+
+    TaskManager tmp2;
+    tmp2 = std::move(tmp);
+    queue = tmp2.GetQueue();
+
+    auto fut3 = queue->PushTask(&DummyProcess::double_nums, &p);
+
+    EXPECT_NO_THROW(fut.wait());
+    EXPECT_NO_THROW(fut2.wait());
+    EXPECT_NO_THROW(fut3.wait());
+
+    EXPECT_EQ((std::vector<int>(VECNUM, 80)), p.get());
+}
+
+TEST_F (TaskManagerTest, AccessMovedObject) {
+
+    auto fut3 = queue->PushTask(&DummyProcess::double_nums, &p);
+    TaskManager tmp = std::move(tm);
+    auto q = tm.GetQueue();
+    q->IsDone();
+    q->WaitAndPop();
+    q->TryAndPop();
+    fut3.get();
+}
 
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);

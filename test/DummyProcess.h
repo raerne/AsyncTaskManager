@@ -10,6 +10,7 @@
 #include <functional>
 #include <mutex>
 #include <thread>
+#include <iostream>
 
 using namespace std::chrono_literals;
 
@@ -29,6 +30,7 @@ public:
 
     void double_nums() {
         std::lock_guard<std::mutex> lk(m);
+        std::cout << "double...\n";
         for(auto& n : nums) {
             n *= 2;
         }
