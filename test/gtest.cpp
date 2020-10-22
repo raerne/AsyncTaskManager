@@ -84,6 +84,25 @@ TEST_F (TaskManagerTest, ExceptNoExcept) {
     EXPECT_EQ((std::vector<int>(VECNUM, 20)), p.get());
 }
 
+TEST_F (TaskManagerTest, MultipleManagers) {
+
+    p.set(1);
+
+    TaskManager tm2;
+    tm.PushTask(&DummyProcess::double_nums_and_wait, &p);
+    tm.PushTask(&DummyProcess::double_nums_and_blocking_wait, &p);
+    tm.PushTask(&DummyProcess::double_nums_and_wait, &p);
+    auto fut = tm.PushTask(&DummyProcess::double_nums_and_blocking_wait, &p);
+    tm2.PushTask(&DummyProcess::double_nums_and_wait, &p);
+    tm2.PushTask(&DummyProcess::double_nums_and_blocking_wait, &p);
+    tm2.PushTask(&DummyProcess::double_nums_and_wait, &p);
+    auto fut2 = tm2.PushTask(&DummyProcess::double_nums_and_blocking_wait, &p);
+
+    EXPECT_NO_THROW(fut.get());
+    EXPECT_NO_THROW(fut2.get()); // get would throw however we don't check the shared state
+    EXPECT_EQ((std::vector<int>(VECNUM, 256)), p.get());
+}
+
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

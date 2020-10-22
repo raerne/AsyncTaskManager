@@ -36,11 +36,17 @@ public:
         }
     }
 
+    void double_nums_and_blocking_wait() {
+        std::lock_guard<std::mutex> lk(m);
+        std::this_thread::sleep_for(200ms);
+        for(auto& n : nums) {
+            n *= 2;
+        }
+    }
+
     void double_nums_and_wait() {
-//        std::cout << "double and wait [1]...\n";
         std::this_thread::sleep_for(200ms);
         std::lock_guard<std::mutex> lk(m);
-//        std::cout << "double and wait [2]...\n";
         for(auto& n : nums) {
             n *= 2;
         }
